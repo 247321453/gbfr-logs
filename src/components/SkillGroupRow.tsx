@@ -87,6 +87,9 @@ export const SkillGroupRow = ({ characterType, group, color }: SkillRowProps) =>
           {group.percentage.toFixed(0)}
           <span className="unit font-sm">%</span>
         </td>
+        <td className="text-center row-data">
+          {group.totalDamageCap}
+        </td>
         <div className="damage-bar" style={{ backgroundColor: color, width: `${group.percentage}%` }} />
       </tr>
       {expanded &&

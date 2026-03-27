@@ -83,6 +83,9 @@ export const SkillRow = ({ characterType, skill, color, nested }: SkillRowProps)
         {skill.percentage.toFixed(0)}
         <span className="unit font-sm">%</span>
       </td>
+      <td className="text-center row-data">
+        {skill.totalDamageCap}
+      </td>
       <div className="damage-bar" style={{ backgroundColor: color, width: `${skill.percentage}%` }} />
     </tr>
   );
