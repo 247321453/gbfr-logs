@@ -71,6 +71,7 @@ export const useSkillBreakdown = (player: ComputedPlayerState) => {
                 maxDamage: skill.maxDamage,
                 percentage: skill.percentage,
                 skills: [skill],
+                totalDamageCap: skill.totalDamageCap,
                 maxStunValue: skill.maxStunValue,
                 totalStunValue: skill.totalStunValue,
               });

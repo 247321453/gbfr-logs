@@ -52,6 +52,8 @@ export type SkillState = {
   totalStunValue: number;
   /** Maximum recorded stun value of the skill */
   maxStunValue: number;
+  /** Damage cap of the skill */
+  totalDamageCap: number;
 };
 
 export type ComputedSkillState = SkillState & {
@@ -80,6 +82,8 @@ export type ComputedSkillGroup = {
   totalStunValue: number;
   /** Maximum recorded stun value of the skill */
   maxStunValue: number;
+  /** Damage cap of the skill */
+  totalDamageCap: number;
 };
 
 export type PlayerState = {
