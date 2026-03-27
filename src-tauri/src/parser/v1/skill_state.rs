@@ -50,7 +50,8 @@ impl SkillState {
         self.max_stun_value = self.max_stun_value.max(damage_instance.stun_damage);
         self.total_stun_value += damage_instance.stun_damage;
         let damage_cap = damage_instance.event.damage_cap.unwrap_or(0) as u64;
-        self.total_damage_cap = self.total_damage_cap.max(damage_cap);
+        //let attack_rate = damage_instance.event.attack_rate.unwrap_or(1.0) as f32;
+        self.total_damage_cap = self.total_damage_cap.max(damage_cap);// * attack_rate as u64);
 
         if let Some(min_damage) = self.min_damage {
             self.min_damage = Some(min_damage.min(damage_instance.event.damage as u64));
