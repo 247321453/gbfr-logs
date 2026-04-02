@@ -1,0 +1,17 @@
+{
+  "identifier": "desktop-capability",
+  "platforms": [
+    "macOS",
+    "windows",
+    "linux"
+  ],
+  "windows": [
+    "main",
+    "logs"
+  ],
+  "permissions": [
+    "updater:default",
+	  "dialog:allow-open",
+    "dialog:allow-save"
+  ]
+}

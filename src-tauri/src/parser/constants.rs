@@ -113,4 +113,3 @@ pub enum FerrySkillId {
     Pendel = 1400u32,
     Strafe = 1500u32,
 }
-

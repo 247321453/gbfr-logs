@@ -2,11 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::{
-    collections::HashMap,
-    fs::File,
-    io::Write,
-    path::Path,
-    sync::atomic::{AtomicBool, Ordering},
+    collections::HashMap, fs::File, io::Write, path::Path, sync::atomic::{AtomicBool, Ordering}
 };
 
 use anyhow::Context;
@@ -21,12 +17,13 @@ use parser::{
 use protocol::Message;
 use rusqlite::params_from_iter;
 use serde::{Deserialize, Serialize};
-use tauri::{
-    api::dialog::blocking::FileDialogBuilder, AppHandle, CustomMenuItem, LogicalSize, Manager,
-    Size, State, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem,
-};
-use tauri_plugin_log::LogTarget;
+use tauri::{ AppHandle, Emitter, Listener, LogicalSize, Manager, Size, State};
+use tauri::menu::{MenuItemBuilder, MenuBuilder, MenuEvent };
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+use tauri_plugin_fs::FilePath;
 use tokio_stream::StreamExt;
 use tokio_util::codec::FramedRead;
 
@@ -39,7 +36,7 @@ struct DebugMode(AtomicBool);
 
 #[tauri::command]
 fn set_debug_mode(app: AppHandle, state: State<DebugMode>, enabled: bool) {
-    if let Some(window) = app.get_window("logs") {
+    if let Some(window) = app.get_webview_window("logs") {
         if enabled {
             window.open_devtools()
         } else {
@@ -59,16 +56,21 @@ async fn delete_all_logs() -> Result<(), String> {
 }
 
 #[tauri::command]
-fn export_damage_log_to_file(id: u32, options: ParseOptions) -> Result<(), String> {
-    let file_path = FileDialogBuilder::new()
+fn export_damage_log_to_file(app: AppHandle, id: u32, options: ParseOptions) -> Result<(), String> {
+    app.dialog().file()
         .add_filter("csv", &["csv"])
         .set_file_name(&format!("{id}_damage_log.csv"))
         .set_title("Export Damage Log")
-        .save_file()
-        .ok_or("No file selected!")?;
+        .save_file(move |file_path| {
+            let _ = export_damage_log_to_file_inner(file_path, id, options);
+        });
+    Ok(())
+}
 
+fn export_damage_log_to_file_inner(file_path:Option<FilePath>, id:u32, options: ParseOptions) -> Result<(), Box<dyn std::error::Error>>{
+    let path = file_path.ok_or("No file selected!")?;
+    let path = path.as_path().ok_or("Invalid file path")?;
     let conn = db::connect_to_db().map_err(|e| e.to_string())?;
-
     let mut stmt = conn
         .prepare("SELECT data, version FROM logs WHERE id = ?")
         .map_err(|e| e.to_string())?;
@@ -79,8 +81,7 @@ fn export_damage_log_to_file(id: u32, options: ParseOptions) -> Result<(), Strin
         .map_err(|e| e.to_string())?;
 
     let parser = parser::deserialize_version(&blob, version).map_err(|e| e.to_string())?;
-
-    let file = File::create(file_path).map_err(|e| e.to_string())?;
+    let file = File::create(path).map_err(|e| e.to_string())?;
 
     // @TODO(false): Split formatting into a separate function.
     let mut writer = std::io::BufWriter::new(file);
@@ -427,7 +428,7 @@ async fn check_and_perform_hook(app: AppHandle) {
                 info!("Found game process, injecting DLL: {:?}", dll_path);
 
                 let _ = syringe.inject(dll_path);
-                let _ = app.emit_all("success-alert", "Found game..");
+                let _ = app.emit_str("success-alert", "Found game..".to_string());
 
                 connect_and_run_parser(app);
 
@@ -442,8 +443,8 @@ async fn check_and_perform_hook(app: AppHandle) {
 
 // Connect to the game hook event channel and listen for damage events.
 fn connect_and_run_parser(app: AppHandle) {
-    let window = app.get_window("main").expect("Window not found");
-    let logs_window = app.get_window("logs").expect("Logs window not found");
+    let window = app.get_webview_window("main").expect("Window not found");
+    let logs_window = app.get_webview_window("logs").expect("Logs window not found");
 
     let database = db::connect_to_db().expect("Could not connect to database");
     let mut state = v1::Parser::new(app.clone(), window.clone(), database);
@@ -454,7 +455,7 @@ fn connect_and_run_parser(app: AppHandle) {
                 Ok(stream) => {
                     info!("Connected to game!");
 
-                    let _ = app.emit_all("success-alert", "Connnected to game!");
+                    let _ = app.emit_str("success-alert", "Connnected to game!".to_string());
 
                     let decoder = tokio_util::codec::LengthDelimitedCodec::new();
                     let mut reader = FramedRead::new(stream, decoder);
@@ -507,7 +508,7 @@ fn connect_and_run_parser(app: AppHandle) {
                     info!("Game has closed.");
 
                     // The game has closed, so we should go back to waiting for the game to reopen.
-                    let _ = app.emit_all("error-alert", "Game has closed!");
+                    let _ = app.emit_str("error-alert", "Game has closed!".to_string());
                     break;
                 }
                 Err(_) => {
@@ -522,28 +523,60 @@ fn connect_and_run_parser(app: AppHandle) {
     });
 }
 
-fn system_tray_with_menu() -> SystemTray {
-    let meter = CustomMenuItem::new("open_meter", "Open Meter");
-    let logs = CustomMenuItem::new("open_logs", "Open Logs");
-    let always_on_top = CustomMenuItem::new("always_on_top", "Always on top ✓");
-    let toggle_clickthrough = CustomMenuItem::new("toggle_clickthrough", "Clickthrough");
-    let reset_windows = CustomMenuItem::new("reset_windows", "Reset Windows");
-    let quit = CustomMenuItem::new("quit", "Quit");
+fn system_tray_with_menu(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    let meter = MenuItemBuilder::with_id("open_meter","Open Meter").build(app)?;
+    let logs = MenuItemBuilder::with_id("open_logs", "Open Logs").build(app)?;
+    let always_on_top = MenuItemBuilder::with_id("always_on_top", "Always on top ✓").build(app)?;
+    let toggle_clickthrough = MenuItemBuilder::with_id("toggle_clickthrough", "Clickthrough").build(app)?;
+    let reset_windows = MenuItemBuilder::with_id("reset_windows", "Reset Windows").build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
-    let menu = SystemTrayMenu::new()
-        .add_item(meter)
-        .add_item(logs)
-        .add_item(always_on_top)
-        .add_item(toggle_clickthrough)
-        .add_item(reset_windows)
-        .add_native_item(SystemTrayMenuItem::Separator)
-        .add_item(quit);
+    let menu = MenuBuilder::new(app)
+    .item(&meter)
+    .item(&logs)
+    .item(&always_on_top)
+    .item(&toggle_clickthrough)
+    .item(&reset_windows)
+    .separator()
+    .item(&quit)
+    .build()?;
+    app.listen("on-clickthrough", move |event|{
+        if let Ok(new_state) = serde_json::from_str::<bool>(&event.payload()) {
+            let _ = toggle_clickthrough.set_text(if new_state { "Clickthrough ✓" } else { "Clickthrough" });
+        }
+    });
+    app.listen("on-pinned",  move|event|{
+        if let Ok(new_state) = serde_json::from_str::<bool>(&event.payload()) {
+            let _ = always_on_top.set_text(if new_state { "Always on top ✓" } else { "Always on top" });
+        }
+    });
 
-    SystemTray::new().with_menu(menu)
+     let _ = TrayIconBuilder::with_id("main_tray")
+            .menu(&menu)
+            .icon(app.default_window_icon().unwrap().clone())
+            .on_menu_event(menu_tray_handler)
+            .on_tray_icon_event(|tray, event| {
+                if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                } = event
+                {
+                    //toggle_window_visibility(handle, "main", Some(should_focus));
+                    let app = tray.app_handle();
+                    if let Some(webview_window) = app.get_webview_window("main") {
+                       let _ = webview_window.unminimize();
+                       let _ = webview_window.show();
+                       let _ = webview_window.set_focus();
+                    }
+                }
+            })
+            .build(app);
+    Ok(())
 }
 
 fn toggle_window_visibility(handle: &AppHandle, id: &str, focus: Option<bool>) {
-    if let Some(window) = handle.get_window(id) {
+    if let Some(window) = handle.get_webview_window(id) {
         if let Some(focus_value) = focus {
             if focus_value {
                 window.set_focus().unwrap();
@@ -557,61 +590,40 @@ fn toggle_window_visibility(handle: &AppHandle, id: &str, focus: Option<bool>) {
     }
 }
 
+
 #[tauri::command]
-fn toggle_always_on_top(window: tauri::Window, state: State<AlwaysOnTop>) {
+fn toggle_always_on_top(window: tauri::WebviewWindow, state: State<AlwaysOnTop>) {
     let always_on_top = &state.0;
     let new_state = !always_on_top.load(Ordering::Acquire);
     always_on_top.store(new_state, Ordering::Release);
     window.set_always_on_top(new_state).unwrap();
     let _ = window.emit("on-pinned", new_state);
-    let _ = window
-        .app_handle()
-        .tray_handle()
-        .get_item("always_on_top")
-        .set_title(if new_state {
-            "Always on top ✓"
-        } else {
-            "Always on top"
-        });
 }
 
 #[tauri::command]
-fn toggle_clickthrough(window: tauri::Window, state: State<ClickThrough>) {
+fn toggle_clickthrough(window: tauri::WebviewWindow, state: State<ClickThrough>) {
     let click_through = &state.0;
     let new_state = !click_through.load(Ordering::Acquire);
     click_through.store(new_state, Ordering::Release);
     window.set_ignore_cursor_events(new_state).unwrap();
     let _ = window.emit("on-clickthrough", new_state);
-    let _ = window
-        .app_handle()
-        .tray_handle()
-        .get_item("toggle_clickthrough")
-        .set_title(if new_state {
-            "Clickthrough ✓"
-        } else {
-            "Clickthrough"
-        });
 }
 
-fn menu_tray_handler(handle: &AppHandle, event: SystemTrayEvent) {
+fn menu_tray_handler(handle: &AppHandle, event: MenuEvent) {
     let should_focus = true;
-    match event {
-        SystemTrayEvent::LeftClick { .. } => {
-            toggle_window_visibility(handle, "main", Some(should_focus))
-        }
-        SystemTrayEvent::MenuItemClick { id, .. } => match id.as_str() {
+    match event.id().as_ref() {
             "open_meter" => toggle_window_visibility(handle, "main", Some(should_focus)),
             "open_logs" => toggle_window_visibility(handle, "logs", Some(should_focus)),
             "toggle_clickthrough" => toggle_clickthrough(
-                handle.get_window("main").unwrap(),
+                handle.get_webview_window("main").unwrap(),
                 handle.state::<ClickThrough>(),
             ),
             "always_on_top" => toggle_always_on_top(
-                handle.get_window("main").unwrap(),
+                handle.get_webview_window("main").unwrap(),
                 handle.state::<AlwaysOnTop>(),
             ),
             "reset_windows" => {
-                if let Some(window) = handle.get_window("main") {
+                if let Some(window) = handle.get_webview_window("main") {
                     let _ = window.show();
                     let _ = window.unminimize();
                     let _ = window.set_size(Size::Logical(LogicalSize {
@@ -620,7 +632,7 @@ fn menu_tray_handler(handle: &AppHandle, event: SystemTrayEvent) {
                     }));
                 }
 
-                if let Some(window) = handle.get_window("logs") {
+                if let Some(window) = handle.get_webview_window("logs") {
                     let _ = window.show();
                     let _ = window.unminimize();
                     let _ = window.set_size(Size::Logical(LogicalSize {
@@ -634,13 +646,11 @@ fn menu_tray_handler(handle: &AppHandle, event: SystemTrayEvent) {
                 handle.exit(0)
             }
             _ => {}
-        },
-        _ => {} // Ignore rest of the events.
     }
 }
 
 fn show_window(app: &AppHandle) {
-    let windows = app.windows();
+    let windows = app.webview_windows();
 
     for window in windows.values() {
         let _ = window.show();
@@ -656,13 +666,17 @@ fn main() {
     info!("Database setup complete, launching application..");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_window(app);
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(
             tauri_plugin_log::Builder::default()
-                .targets([LogTarget::Folder("logs".into()), LogTarget::Stdout])
+                .targets([Target::new(TargetKind::Folder { path: "logs".into(), file_name: None }), Target::new(TargetKind::Stdout)])
                 .level(LevelFilter::Warn)
                 .level_for("tao", LevelFilter::Error)
                 .build(),
@@ -670,13 +684,12 @@ fn main() {
         .manage(AlwaysOnTop(AtomicBool::new(true)))
         .manage(ClickThrough(AtomicBool::new(false)))
         .manage(DebugMode(AtomicBool::new(false)))
-        .system_tray(system_tray_with_menu())
-        .on_system_tray_event(menu_tray_handler)
-        .on_window_event(|event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event.event() {
-                event.window().hide().unwrap();
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                window.hide().unwrap();
                 api.prevent_close();
             }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             fetch_encounter_state,
@@ -688,9 +701,9 @@ fn main() {
             set_debug_mode,
         ])
         .setup(|app| {
+            let _= system_tray_with_menu(app.handle());
             // Perform the game hook check in a separate thread.
-            tauri::async_runtime::spawn(check_and_perform_hook(app.handle()));
-
+            tauri::async_runtime::spawn(check_and_perform_hook(app.handle().clone()));
             Ok(())
         })
         .run(tauri::generate_context!())

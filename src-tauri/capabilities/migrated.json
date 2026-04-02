@@ -1,0 +1,35 @@
+{
+  "identifier": "migrated",
+  "description": "permissions that were migrated from v1",
+  "local": true,
+  "windows": [
+    "main",
+    "logs"
+  ],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "fs:allow-read-file",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        "$RESOURCE/*",
+        "$RESOURCE/lang/*",
+        "$RESOURCE/lang/*/*",
+        "$RESOURCE/assets/*",
+        "$RESOURCE/assets/*/*"
+      ]
+    },
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-minimize",
+    "core:window:allow-unminimize",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "shell:allow-open",
+    "fs:default"
+  ]
+}

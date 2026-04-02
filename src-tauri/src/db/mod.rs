@@ -50,5 +50,5 @@ pub fn connect_to_db() -> Result<Connection> {
     let conn = Connection::open("logs.db")?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
 
-    return Ok(conn)
+    return Ok(conn);
 }
