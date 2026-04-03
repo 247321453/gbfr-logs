@@ -20,7 +20,7 @@ sea-query = { version = "0.32.7"}
 sea-query-rusqlite = { version = "0.7.0", features = ["with-chrono"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tauri = { version = "2", features = [ "devtools", "tray-icon", "image-png"] }
+tauri = { version = "2", features = [ "devtools", "tray-icon"] }
 tauri-plugin-single-instance = { version = "2" }
 tauri-plugin-window-state = { version = "2" }
 tauri-plugin-log = { version = "2" }
@@ -38,10 +38,17 @@ strum_macros = "0.28"
 cbor4ii = { version = "0.3.3", features = ["use_std", "serde1"] }
 log = "^0.4"
 tauri-plugin-fs = "2"
-tauri-plugin-shell = "2"
+# tauri-plugin-shell = "2"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 
 [target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
 tauri-plugin-updater = "2.10"
+
+[profile.release]
+lto = true # Enables link-time-optimizations.
+codegen-units = 1
+strip = true   
+opt-level = "s"
+panic = "abort"
