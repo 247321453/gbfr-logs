@@ -84,7 +84,7 @@ export const SkillRow = ({ characterType, skill, color, nested }: SkillRowProps)
         <span className="unit font-sm">%</span>
       </td>
       <td className="text-center row-data">
-        {skill.totalDamageCap}
+        {showFullValues ? (skill.totalDamageCap).toLocaleString():skill.totalDamageCap}
       </td>
       <div className="damage-bar" style={{ backgroundColor: color, width: `${skill.percentage}%` }} />
     </tr>

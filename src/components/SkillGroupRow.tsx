@@ -88,7 +88,7 @@ export const SkillGroupRow = ({ characterType, group, color }: SkillRowProps) =>
           <span className="unit font-sm">%</span>
         </td>
         <td className="text-center row-data">
-          {group.totalDamageCap}
+          {showFullValues?(group.totalDamageCap).toLocaleString():group.totalDamageCap}
         </td>
         <div className="damage-bar" style={{ backgroundColor: color, width: `${group.percentage}%` }} />
       </tr>
