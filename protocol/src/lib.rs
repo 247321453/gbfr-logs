@@ -161,8 +161,10 @@ pub struct PlayerLoadEvent {
     pub party_index: u8,
     pub actor_index: u32,
     pub is_online: bool,
-    pub weapon_info: WeaponInfo,
-    pub overmastery_info: OvermasteryInfo,
+    /// None when the game 2.0 weapon-offset lookup hasn't been re-derived yet.
+    pub weapon_info: Option<WeaponInfo>,
+    /// None when the game 2.0 overmastery-offset lookup hasn't been re-derived yet.
+    pub overmastery_info: Option<OvermasteryInfo>,
     pub player_stats: PlayerStats,
 }
 
@@ -220,4 +222,7 @@ pub enum Message {
     OnContinueSBAChain(OnContinueSBAChainEvent),
     PlayerLoadEvent(PlayerLoadEvent),
     OnDeathEvent(OnDeathEvent),
+    /// The game has entered its quest result UI. This intentionally carries no
+    /// quest-memory metadata so it remains safe across game layout updates.
+    OnBattleEnd,
 }

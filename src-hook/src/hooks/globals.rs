@@ -13,10 +13,16 @@ pub static OVERMASTERY_OFFSET: AtomicU32 = AtomicU32::new(0);
 pub static SIGIL_OFFSET: AtomicU32 = AtomicU32::new(0);
 pub static SBA_OFFSET: AtomicU32 = AtomicU32::new(0);
 
+/// Game 2.0 restructured the property lookup this used to resolve via a static byte
+/// pattern (it now goes through a runtime hashtable dispatch instead of a fixed
+/// compile-time offset). Verified live on 2026-07-11 against a known character's
+/// level/HP/attack/power values via a bounded memory scan from the damage hook -
+/// see feedback_re_methodology memory for the technique. Re-verify if this ever
+/// silently produces wrong player stats after a future game patch.
+const PLAYER_DATA_OFFSET_GAME_2: u32 = 0x15030;
+
 pub fn setup_globals(process: &Process) -> Result<()> {
-    let player_data_offset = process
-        .search_slice::<u32>("3d b0 e0 7a 88 0f ? ? ? ? ? b8 b0 e0 7a 88 48 8d 8e '")
-        .context("Could not find player_data_offset")?;
+    let player_data_offset = PLAYER_DATA_OFFSET_GAME_2;
 
     #[cfg(feature = "console")]
     println!("player_data_offset: {:x}", player_data_offset);

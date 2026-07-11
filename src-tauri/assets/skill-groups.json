@@ -415,5 +415,13 @@
     "two-crown-strife": {
       "skills": [1700, 1701]
     }
+  },
+  "Pl2500": {
+    "normal-attack": {
+      "skills": [100, 101, 102, 103]
+    },
+    "combo-finisher": {
+      "skills": [200, 210, 220, 230]
+    }
   }
 }

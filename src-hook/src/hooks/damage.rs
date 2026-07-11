@@ -1,12 +1,92 @@
+use std::collections::HashMap;
+use std::ffi::CString;
 use std::ptr::NonNull;
+use std::sync::atomic::Ordering;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use protocol::{ActionType, Actor, DamageEvent, Message};
 use retour::static_detour;
 
-use crate::{event, hooks::ffi::DamageInstance, process::Process};
+use crate::{
+    event,
+    hooks::{ffi::DamageInstance, ffi::PlayerStats, globals::PLAYER_DATA_OFFSET},
+    process::Process,
+};
 
 use super::{actor_idx, actor_type_id, get_source_parent};
+
+/// Piggybacks on the damage hook to opportunistically send player stats, since the
+/// dedicated "on load player" hook's signature is stale for game 2.0 (see
+/// project_game_2_compatibility_fix memory) and re-deriving it live proved too
+/// fragile (address instability across quest loads, crashes when watching
+/// character-switch memory operations). This sidesteps needing that event at all:
+/// every damage hit already gives us a live pointer to the attacker's entity.
+const PLAYER_STATS_RESEND_INTERVAL: Duration = Duration::from_secs(5);
+
+fn maybe_send_player_stats(tx: &event::Tx, actor_index: u32, character_type: u32, entity_ptr: *const usize) {
+    let player_offset = PLAYER_DATA_OFFSET.load(Ordering::Relaxed);
+
+    if player_offset == 0 {
+        return;
+    }
+
+    static LAST_SENT: OnceLock<Mutex<HashMap<u32, Instant>>> = OnceLock::new();
+    let mut last_sent = LAST_SENT.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
+    let now = Instant::now();
+
+    if let Some(sent_at) = last_sent.get(&actor_index) {
+        if now.duration_since(*sent_at) < PLAYER_STATS_RESEND_INTERVAL {
+            return;
+        }
+    }
+
+    let raw_player_stats =
+        std::ptr::NonNull::new(unsafe { entity_ptr.byte_add(player_offset as usize) } as *mut PlayerStats);
+
+    let Some(raw_player_stats) = raw_player_stats else {
+        return;
+    };
+
+    let stats = unsafe { raw_player_stats.as_ref() };
+
+    // Enemies/pets don't have a real PlayerStats struct at this offset; a sane-looking
+    // level/health/power triple simultaneously is a strong signal this really is a
+    // player (matches the same fields used to originally verify this offset live).
+    let looks_like_player = (1..=999).contains(&stats.level)
+        && (1..10_000_000).contains(&stats.total_health)
+        && (1..1_000_000).contains(&stats.total_power);
+
+    if !looks_like_player {
+        return;
+    }
+
+    last_sent.insert(actor_index, now);
+
+    let payload = Message::PlayerLoadEvent(protocol::PlayerLoadEvent {
+        sigils: Vec::new(),
+        character_name: CString::new("").unwrap(),
+        display_name: CString::new("").unwrap(),
+        actor_index,
+        is_online: false,
+        // Unknown without sigil_offset; consumers key off actor_index instead.
+        party_index: 0xFF,
+        player_stats: protocol::PlayerStats {
+            level: stats.level,
+            total_hp: stats.total_health,
+            total_attack: stats.total_attack,
+            stun_power: stats.stun_power,
+            critical_rate: stats.critical_rate,
+            total_power: stats.total_power,
+        },
+        character_type,
+        weapon_info: None,
+        overmastery_info: None,
+    });
+
+    let _ = tx.send(payload);
+}
 
 type ProcessDamageEventFunc =
     unsafe extern "system" fn(*const usize, *const usize, *const usize, u8) -> usize;
@@ -57,20 +137,7 @@ impl OnProcessDamageHook {
         // For example: Instance of the Em2700 class.
         let target_specified_instance_ptr: usize = unsafe { *(*a1.byte_add(0x08) as *const usize) };
 
-        let previous_stun_value = unsafe {
-            (target_specified_instance_ptr as *const f32)
-                .byte_add(0xA70)
-                .read()
-        };
-
         let original_value = unsafe { ProcessDamageEvent.call(a1, a2, a3, a4) };
-
-        let current_stun_value = unsafe {
-            (target_specified_instance_ptr as *const f32)
-                .byte_add(0xA70)
-                .read()
-        };
-        let added_stun_value = (current_stun_value - previous_stun_value).max(0.0);
 
         // This points to the first Entity instance in the 'a2' entity list.
         let source_entity_ptr = unsafe { (a2.byte_add(0x18) as *const *const usize).read() };
@@ -99,32 +166,28 @@ impl OnProcessDamageHook {
         } else if ((1 << 13 | 1 << 14) & flags) != 0 {
             ActionType::SBA
         } else if ((1 << 15) & flags) != 0 {
-            let skill_id = unsafe { (a2.byte_add(0x154) as *const u32).read() };
-            ActionType::SupplementaryDamage(skill_id)
+            ActionType::SupplementaryDamage(damage_instance.action_id)
         } else {
-            let skill_id = unsafe { (a2.byte_add(0x154) as *const u32).read() };
-            ActionType::Normal(skill_id)
+            ActionType::Normal(damage_instance.action_id)
         };
 
         // Get the source actor's type ID.
         let source_type_id = actor_type_id(source_specified_instance_ptr as *const usize);
         let source_idx = actor_idx(source_specified_instance_ptr as *const usize);
 
-        // If the source_type is any of the following, then we need to get their parent entity.
-        let (source_parent_type_id, source_parent_idx) = get_source_parent(
+        maybe_send_player_stats(
+            &self.tx,
+            source_idx,
             source_type_id,
             source_specified_instance_ptr as *const usize,
-        )
-        .unwrap_or((source_type_id, source_idx));
+        );
+
+        // Parent layouts are character-specific and changed in the 2.0 update. Keep the
+        // source attributed to the concrete actor until those optional offsets are verified.
+        let (source_parent_type_id, source_parent_idx) = (source_type_id, source_idx);
 
         let target_type_id: u32 = actor_type_id(target_specified_instance_ptr as *const usize);
         let target_idx = actor_idx(target_specified_instance_ptr as *const usize);
-
-        let stun_value = if matches!(action_type, ActionType::SupplementaryDamage(_)) {
-            None
-        } else {
-            Some(added_stun_value)
-        };
 
         let event = Message::DamageEvent(DamageEvent {
             source: Actor {
@@ -142,9 +205,9 @@ impl OnProcessDamageHook {
             damage,
             flags,
             action_id: action_type,
-            attack_rate: Some(damage_instance.attack_rate),
+            attack_rate: None,
             damage_cap: Some(damage_instance.damage_cap),
-            stun_value,
+            stun_value: None,
         });
 
         let _ = self.tx.send(event);
