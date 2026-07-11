@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
 use std::sync::atomic::Ordering;
 use std::sync::{Mutex, OnceLock};
@@ -11,7 +11,10 @@ use retour::static_detour;
 
 use crate::{
     event,
-    hooks::{ffi::DamageInstance, ffi::PlayerStats, globals::PLAYER_DATA_OFFSET},
+    hooks::{
+        ffi::{DamageInstance, PlayerStats, SigilList, VBuffer},
+        globals::{PLAYER_DATA_OFFSET, SIGIL_OFFSET},
+    },
     process::Process,
 };
 
@@ -64,13 +67,53 @@ fn maybe_send_player_stats(tx: &event::Tx, actor_index: u32, character_type: u32
 
     last_sent.insert(actor_index, now);
 
+    // sigil_offset is a pointer to a separately-allocated SigilList (unlike
+    // player_data_offset, which is embedded inline) - hence the extra `.read()`.
+    let sigil_offset = SIGIL_OFFSET.load(Ordering::Relaxed);
+    let sigil_list = if sigil_offset != 0 {
+        std::ptr::NonNull::new(unsafe { entity_ptr.byte_add(sigil_offset as usize).read() } as *mut SigilList)
+            .map(|list| unsafe { list.as_ref() })
+    } else {
+        None
+    };
+
+    let (sigils, character_name, display_name, is_online) = match sigil_list {
+        Some(sigil_list) => {
+            let sigils = sigil_list
+                .sigils
+                .iter()
+                .map(|sigil| protocol::Sigil {
+                    first_trait_id: sigil.first_trait_id,
+                    first_trait_level: sigil.first_trait_level,
+                    second_trait_id: sigil.second_trait_id,
+                    second_trait_level: sigil.second_trait_level,
+                    sigil_id: sigil.sigil_id,
+                    equipped_character: sigil.equipped_character,
+                    sigil_level: sigil.sigil_level,
+                    acquisition_count: sigil.acquisition_count,
+                    notification_enum: sigil.notification_enum,
+                })
+                .collect();
+
+            let character_name = CStr::from_bytes_until_nul(&sigil_list.character_name)
+                .ok()
+                .map(|cstr| cstr.to_owned())
+                .unwrap_or(CString::new("").unwrap());
+
+            let display_name = VBuffer(std::ptr::addr_of!(sigil_list.display_name) as *const usize).raw();
+
+            (sigils, character_name, display_name, sigil_list.is_online != 0)
+        }
+        None => (Vec::new(), CString::new("").unwrap(), CString::new("").unwrap(), false),
+    };
+
     let payload = Message::PlayerLoadEvent(protocol::PlayerLoadEvent {
-        sigils: Vec::new(),
-        character_name: CString::new("").unwrap(),
-        display_name: CString::new("").unwrap(),
+        sigils,
+        character_name,
+        display_name,
         actor_index,
-        is_online: false,
-        // Unknown without sigil_offset; consumers key off actor_index instead.
+        is_online,
+        // Unknown without a verified party_index source; consumers key off actor_index instead.
         party_index: 0xFF,
         player_stats: protocol::PlayerStats {
             level: stats.level,

@@ -36,6 +36,12 @@ mod parser;
 struct AlwaysOnTop(AtomicBool);
 struct ClickThrough(AtomicBool);
 struct DebugMode(AtomicBool);
+struct ForceEndEncounter(AtomicBool);
+
+#[tauri::command]
+fn end_current_encounter(state: State<ForceEndEncounter>) {
+    state.0.store(true, Ordering::Release);
+}
 
 #[tauri::command]
 fn set_debug_mode(app: AppHandle, state: State<DebugMode>, enabled: bool) {
@@ -517,7 +523,13 @@ fn connect_and_run_parser(app: AppHandle) {
                                 }
                             }
                             _ = inactivity_check.tick() => {
-                                state.auto_save_if_inactive(chrono::Utc::now().timestamp_millis());
+                                let forced = app.state::<ForceEndEncounter>().0.swap(false, Ordering::AcqRel);
+
+                                if forced {
+                                    state.on_battle_end_event();
+                                } else {
+                                    state.auto_save_if_inactive(chrono::Utc::now().timestamp_millis());
+                                }
                             }
                         }
                     }
@@ -688,6 +700,7 @@ fn main() {
         .manage(AlwaysOnTop(AtomicBool::new(true)))
         .manage(ClickThrough(AtomicBool::new(false)))
         .manage(DebugMode(AtomicBool::new(false)))
+        .manage(ForceEndEncounter(AtomicBool::new(false)))
         .system_tray(system_tray_with_menu())
         .on_system_tray_event(menu_tray_handler)
         .on_window_event(|event| {
@@ -704,6 +717,7 @@ fn main() {
             toggle_always_on_top,
             export_damage_log_to_file,
             set_debug_mode,
+            end_current_encounter,
         ])
         .setup(|app| {
             // Perform the game hook check in a separate thread.

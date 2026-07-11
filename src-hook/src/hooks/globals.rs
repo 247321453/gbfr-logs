@@ -21,6 +21,13 @@ pub static SBA_OFFSET: AtomicU32 = AtomicU32::new(0);
 /// silently produces wrong player stats after a future game patch.
 const PLAYER_DATA_OFFSET_GAME_2: u32 = 0x15030;
 
+/// Unlike player_data_offset, this is a *direct* offset from the entity to a slot
+/// that holds a pointer to a separately-allocated SigilList (confirmed live:
+/// entity_ptr+this, read as a pointer, dereferenced, gives sigil_id/sigil_level
+/// matching the actually-equipped sigil). See feedback_re_methodology memory - this
+/// needed an extra level of indirection beyond what worked for player_data_offset.
+const SIGIL_OFFSET_GAME_2: u32 = 0x1AE90;
+
 pub fn setup_globals(process: &Process) -> Result<()> {
     let player_data_offset = PLAYER_DATA_OFFSET_GAME_2;
 
@@ -29,17 +36,10 @@ pub fn setup_globals(process: &Process) -> Result<()> {
 
     PLAYER_DATA_OFFSET.store(player_data_offset, std::sync::atomic::Ordering::Relaxed);
 
-    let sigil_offset = process
-        .search_slice::<u32>("8b 01 eb 02 31 c0 49 8b 8c 24 ' ? ? ? ? 89 81 ? ? ? ?")
-        .context("Could not find sigil offset")?;
-
     #[cfg(feature = "console")]
-    println!("sigil offsets: {:x}", sigil_offset);
+    println!("sigil_offset: {:x}", SIGIL_OFFSET_GAME_2);
 
-    SIGIL_OFFSET.store(
-        player_data_offset + sigil_offset,
-        std::sync::atomic::Ordering::Relaxed,
-    );
+    SIGIL_OFFSET.store(SIGIL_OFFSET_GAME_2, std::sync::atomic::Ordering::Relaxed);
 
     let weapon_offset = process
         .search_slice::<u8>("48 ? ? ' ? 48 ? ? ? 48 ? ? e8 ? ? ? ? 31 ?")
