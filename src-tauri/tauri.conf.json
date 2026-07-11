@@ -7,7 +7,7 @@
   },
   "package": {
     "productName": "GBFR Logs",
-    "version": "1.8.0"
+    "version": "1.9.0"
   },
   "tauri": {
     "allowlist": {
@@ -25,7 +25,9 @@
         "minimize": true,
         "unmaximize": true,
         "unminimize": true,
-        "startDragging": true
+        "startDragging": true,
+        "setSize": true,
+        "setPosition": true
       },
       "fs": {
         "readFile": true,
@@ -46,13 +48,14 @@
         "title": "Meter",
         "label": "main",
         "fullscreen": false,
-        "width": 500,
-        "height": 350,
+        "width": 800,
+        "height": 160,
         "resizable": true,
+        "maximizable": false,
         "decorations": false,
         "transparent": true,
         "minWidth": 250,
-        "minHeight": 120,
+        "minHeight": 40,
         "alwaysOnTop": true,
         "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-gpu"
       },

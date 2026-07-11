@@ -333,6 +333,70 @@ export const exportFullEncounterToClipboard = (
 
 export const PLAYER_COLORS = ["#FF5630", "#FFAB00", "#36B37E", "#00B8D9", "#9BCF53", "#380E7F", "#416D19", "#2C568D"];
 
+export type ColumnValue = {
+  value: string | number;
+  unit?: string | number;
+};
+
+/// Picks the display color for a player row/card: the 4 user-configurable colors for
+/// party slots 0-3, falling back to the hardcoded overflow colors for slots 4-7 (extra
+/// players in larger multiplayer content).
+export const getPlayerColor = (
+  configuredColors: [string, string, string, string],
+  partyData: Array<PlayerData | null>,
+  player: ComputedPlayerState
+): string => {
+  const playerColors = [...configuredColors, ...PLAYER_COLORS.slice(4)];
+  const partySlotIndex = partyData.findIndex((partyMember) => partyMember?.actorIndex === player.index);
+
+  return partySlotIndex !== -1 ? playerColors[partySlotIndex] : playerColors[player.partyIndex];
+};
+
+/// Darkens and applies transparency to a "#rrggbb" color, for a subtle per-player card
+/// background tint that reads as related-to-but-distinct-from that player's bright bar color.
+export const darkenColorToRgba = (hex: string, darkenFactor: number, alpha: number): string => {
+  const clean = hex.replace("#", "");
+  const r = Math.round(parseInt(clean.substring(0, 2), 16) * darkenFactor);
+  const g = Math.round(parseInt(clean.substring(2, 4), 16) * darkenFactor);
+  const b = Math.round(parseInt(clean.substring(4, 6), 16) * darkenFactor);
+
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+/// Formats a player's stat for the given column, matching the humanized/full-value display rules.
+export const matchColumnTypeToValue = (
+  player: ComputedPlayerState,
+  showFullValues: boolean,
+  column: MeterColumns
+): ColumnValue => {
+  const [totalDamage, totalDamageUnit] = humanizeNumbers(player.totalDamage);
+  const [dps, dpsUnit] = humanizeNumbers(player.dps);
+  const [totalStunValue, totalStunValueUnit] = humanizeNumbers(player.totalStunValue);
+
+  switch (column) {
+    case MeterColumns.TotalDamage:
+      return showFullValues
+        ? { value: (player.totalDamage || 0).toLocaleString() }
+        : { value: totalDamage, unit: totalDamageUnit };
+    case MeterColumns.DPS:
+      return showFullValues ? { value: (player.dps || 0).toLocaleString() } : { value: dps, unit: dpsUnit };
+    case MeterColumns.DamagePercentage:
+      return { value: (player.percentage || 0).toFixed(0), unit: "%" };
+    case MeterColumns.SBA:
+      return showFullValues
+        ? { value: (player.sba / 10).toFixed(2) }
+        : { value: (player.sba / 10).toFixed(2), unit: "%" };
+    case MeterColumns.StunPerSecond:
+      return { value: (player.stunPerSecond || 0).toLocaleString() };
+    case MeterColumns.TotalStunValue:
+      return showFullValues
+        ? { value: (player.totalStunValue || 0).toLocaleString() }
+        : { value: totalStunValue, unit: totalStunValueUnit };
+    default:
+      return { value: "" };
+  }
+};
+
 /// Translates the enemy type to a human-readable string.
 export const translateEnemyType = (type: EnemyType | null): string => {
   if (type === null) return "";

@@ -19,13 +19,22 @@ import { DotsSixVertical } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+
+import { MeterTheme } from "@/types";
+
 import useSettings from "./useSettings";
+
+const METER_THEME_OPTIONS = [
+  { value: MeterTheme.Default, label: "Default" },
+  { value: MeterTheme.HorizontalOverlay, label: "HorizontalOverlay" },
+];
 
 const SettingsPage = () => {
   const { t, i18n } = useTranslation();
   const [debugMode, setDebugMode] = useState(false);
 
   const {
+    meter_theme,
     color_1,
     color_2,
     color_3,
@@ -44,6 +53,7 @@ const SettingsPage = () => {
     addOverlayColumn,
     removeOverlayColumn,
     open_log_on_save,
+    auto_resize_window,
   } = useSettings();
 
   const toggleDebugMode = () => {
@@ -63,6 +73,13 @@ const SettingsPage = () => {
             defaultValue={i18n.language}
             allowDeselect={false}
             onChange={handleLanguageChange}
+          />
+          <Select
+            label={t("ui.meter-theme")}
+            data={METER_THEME_OPTIONS}
+            value={meter_theme}
+            allowDeselect={false}
+            onChange={(value) => value && setMeterSettings({ meter_theme: value as MeterTheme })}
           />
           <ColorInput
             defaultValue={color_1}
@@ -133,23 +150,37 @@ const SettingsPage = () => {
               onChange={(event) => setMeterSettings({ open_log_on_save: event.currentTarget.checked })}
             />
           </Tooltip>
+          <Tooltip label={t("ui.auto-resize-window-description")}>
+            <Checkbox
+              label={t("ui.auto-resize-window")}
+              checked={auto_resize_window}
+              onChange={(event) => setMeterSettings({ auto_resize_window: event.currentTarget.checked })}
+            />
+          </Tooltip>
           <Tooltip label={t("ui.debug-mode-description")}>
             <Checkbox label={t("ui.debug-mode")} checked={debugMode} onChange={toggleDebugMode} />
           </Tooltip>
           <Divider />
           <Text size="sm">Customize Overlay Meter Columns</Text>
-          <Menu shadow="md" trigger="hover" openDelay={100} closeDelay={400}>
-            <Menu.Target>
-              <Button>Add column</Button>
-            </Menu.Target>
-            <Menu.Dropdown>
-              {availableOverlayColumns.map((item) => (
-                <Menu.Item key={item} onClick={() => addOverlayColumn(item)}>
-                  {t(`ui.meter-columns.${item}`)} - {t(`ui.meter-columns.${item}-description`)}
-                </Menu.Item>
-              ))}
-            </Menu.Dropdown>
-          </Menu>
+          {meter_theme === MeterTheme.HorizontalOverlay && (
+            <Text size="xs" c="dimmed">
+              {t("ui.horizontal-overlay-columns-note")}
+            </Text>
+          )}
+          {meter_theme !== MeterTheme.HorizontalOverlay && (
+            <Menu shadow="md" trigger="hover" openDelay={100} closeDelay={400}>
+              <Menu.Target>
+                <Button>Add column</Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                {availableOverlayColumns.map((item) => (
+                  <Menu.Item key={item} onClick={() => addOverlayColumn(item)}>
+                    {t(`ui.meter-columns.${item}`)} - {t(`ui.meter-columns.${item}-description`)}
+                  </Menu.Item>
+                ))}
+              </Menu.Dropdown>
+            </Menu>
+          )}
           <DragDropContext onDragEnd={handleReorderOverlayColumns}>
             <Droppable droppableId="overlay-columns">
               {(droppableProvided) => (

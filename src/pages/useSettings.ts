@@ -14,6 +14,7 @@ const reorder = <TList extends unknown[]>(list: TList, startIndex: number, endIn
 
 export default function useSettings() {
   const {
+    meter_theme,
     color_1,
     color_2,
     color_3,
@@ -25,8 +26,10 @@ export default function useSettings() {
     use_condensed_skills,
     overlay_columns,
     open_log_on_save,
+    auto_resize_window,
     setMeterSettings,
   } = useMeterSettingsStore((state) => ({
+    meter_theme: state.meter_theme,
     color_1: state.color_1,
     color_2: state.color_2,
     color_3: state.color_3,
@@ -37,6 +40,7 @@ export default function useSettings() {
     show_full_values: state.show_full_values,
     use_condensed_skills: state.use_condensed_skills,
     open_log_on_save: state.open_log_on_save,
+    auto_resize_window: state.auto_resize_window,
     setMeterSettings: state.set,
     overlay_columns: state.overlay_columns,
   }));
@@ -76,6 +80,7 @@ export default function useSettings() {
   );
 
   return {
+    meter_theme,
     color_1,
     color_2,
     color_3,
@@ -90,6 +95,7 @@ export default function useSettings() {
     overlay_columns,
     availableOverlayColumns,
     open_log_on_save,
+    auto_resize_window,
     handleLanguageChange,
     handleReorderOverlayColumns,
     addOverlayColumn,

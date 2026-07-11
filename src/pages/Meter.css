@@ -1,0 +1,98 @@
+/* No titlebar in the HorizontalOverlay theme, so the content no longer needs to leave room for it. */
+.app-content-no-titlebar {
+  margin-top: 0 !important;
+}
+
+/* Thin invisible strip at the very top of the window so it can still be dragged/moved
+   without a visible titlebar. */
+.drag-handle {
+  height: 6px;
+  flex-shrink: 0;
+}
+
+.player-strip-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.player-strip {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.player-card {
+  flex: 1 1 120px;
+  min-width: 100px;
+  max-width: 200px;
+  padding: 3px 8px 4px;
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+  color: white;
+  text-shadow: rgba(0, 0, 0, 0.9) 0px 1px 2px;
+  cursor: pointer;
+  user-select: none;
+  transition: filter 0.15s ease-in-out;
+}
+
+.player-card:last-child {
+  border-right: none;
+}
+
+.player-card:hover,
+.player-card-open {
+  filter: brightness(1.4);
+}
+
+.player-card-name {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player-card-stats {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 16px;
+  line-height: 1.15;
+  margin-top: 1px;
+}
+
+.player-card-stat-primary {
+  font-weight: 700;
+}
+
+.player-card-stat-secondary {
+  font-size: 11px;
+  color: #cccccc;
+  opacity: 0.85;
+}
+
+.player-card-caret {
+  margin-left: auto;
+  opacity: 0.5;
+  display: flex;
+  align-items: center;
+}
+
+.player-card-bar-track {
+  height: 4px;
+  margin-top: 3px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.player-card-bar {
+  height: 100%;
+  transition: width 0.1s ease-in-out;
+}
+
+.player-card-label {
+  margin-top: 1px;
+  font-size: 9px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}

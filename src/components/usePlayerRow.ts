@@ -3,12 +3,9 @@ import { useShallow } from "zustand/react/shallow";
 
 import { useMeterSettingsStore } from "@/stores/useMeterSettingsStore";
 import { ComputedPlayerState, MeterColumns, PlayerData } from "@/types";
-import { humanizeNumbers } from "@/utils";
+import { getPlayerColor, matchColumnTypeToValue as matchColumnTypeToValueUtil } from "@/utils";
 
-export type ColumnValue = {
-  value: string | number;
-  unit?: string | number;
-};
+export type { ColumnValue } from "@/utils";
 
 export const usePlayerRow = (live: boolean, player: ComputedPlayerState, partyData: Array<PlayerData | null>) => {
   const { color_1, color_2, color_3, color_4, show_display_names, show_full_values, overlay_columns } =
@@ -26,39 +23,12 @@ export const usePlayerRow = (live: boolean, player: ComputedPlayerState, partyDa
 
   const [isOpen, setIsOpen] = useState(false);
 
-  const playerColors = [color_1, color_2, color_3, color_4, "#9BCF53", "#380E7F", "#416D19", "#2C568D"];
+  const color = getPlayerColor([color_1, color_2, color_3, color_4], partyData, player);
   const partySlotIndex = partyData.findIndex((partyMember) => partyMember?.actorIndex === player.index);
-  const color = partySlotIndex !== -1 ? playerColors[partySlotIndex] : playerColors[player.partyIndex];
-
-  const [totalDamage, totalDamageUnit] = humanizeNumbers(player.totalDamage);
-  const [dps, dpsUnit] = humanizeNumbers(player.dps);
-  const [totalStunValue, totalStunValueUnit] = humanizeNumbers(player.totalStunValue);
 
   // Function for matching the column type to the value to display in the table.
-  const matchColumnTypeToValue = (showFullValues: boolean, column: MeterColumns): ColumnValue => {
-    switch (column) {
-      case MeterColumns.TotalDamage:
-        return showFullValues
-          ? { value: (player.totalDamage || 0).toLocaleString() }
-          : { value: totalDamage, unit: totalDamageUnit };
-      case MeterColumns.DPS:
-        return showFullValues ? { value: (player.dps || 0).toLocaleString() } : { value: dps, unit: dpsUnit };
-      case MeterColumns.DamagePercentage:
-        return { value: (player.percentage || 0).toFixed(0), unit: "%" };
-      case MeterColumns.SBA:
-        return showFullValues
-          ? { value: (player.sba / 10).toFixed(2) }
-          : { value: (player.sba / 10).toFixed(2), unit: "%" };
-      case MeterColumns.StunPerSecond:
-        return { value: (player.stunPerSecond || 0).toLocaleString() };
-      case MeterColumns.TotalStunValue:
-        return showFullValues
-          ? { value: (player.totalStunValue || 0).toLocaleString() }
-          : { value: totalStunValue, unit: totalStunValueUnit };
-      default:
-        return { value: "" };
-    }
-  };
+  const matchColumnTypeToValue = (showFullValues: boolean, column: MeterColumns) =>
+    matchColumnTypeToValueUtil(player, showFullValues, column);
 
   // If the meter is in live mode, only show the overlay columns that are enabled, otherwise show all columns.
   const columns = live

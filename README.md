@@ -1,21 +1,25 @@
 # gbfr-logs
 
-[![GitHub Release](https://img.shields.io/github/v/release/false-spring/gbfr-logs)](https://github.com/false-spring/gbfr-logs/releases)
-[![GitHub Downloads](https://img.shields.io/github/downloads/false-spring/gbfr-logs/total)](https://github.com/false-spring/gbfr-logs/releases)
-[![Discord](https://img.shields.io/discord/1218833963032776774?style=flat&label=discord&color=7289da)](https://discord.gg/GR4r9zrqJj)
+[![GitHub Release](https://img.shields.io/github/v/release/BlueMiku/gbfr-logs)](https://github.com/BlueMiku/gbfr-logs/releases)
 [![GitHub License](https://img.shields.io/github/license/false-spring/gbfr-logs)](./LICENSE)
-
-<a href="https://www.buymeacoffee.com/false.spring" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
 
 Overlay DPS parser/meter for Granblue Fantasy: Relink, based initially on the reverse engineering work from [naoouo/GBFR-ACT](https://github.com/nyaoouo/GBFR-ACT).
 
+> This is a community fork of [false-spring/gbfr-logs](https://github.com/false-spring/gbfr-logs), maintained here after the original project went inactive. All credit for the original tool goes to false-spring and the contributors below.
+
 ## How to install
 
-- Go to [Releases](https://github.com/false-spring/gbfr-logs/releases)
+- Go to [Releases](https://github.com/BlueMiku/gbfr-logs/releases)
 - Download the latest .msi installer and run it.
 - Open GBFR Logs after the game is already running.
 
 ## Screenshots
+
+### New: HorizontalOverlay Theme
+
+Added a compact, horizontal card-strip overlay theme (inspired by FFXIV's HorizOverlay), selectable from Settings alongside the original layout.
+
+![HorizontalOverlay Theme](./docs/screenshots/horizontal-overlay-theme.png)
 
 ### DPS Overlay
 
@@ -86,7 +90,7 @@ See [how to add an exclusion to Windows Defender](https://support.microsoft.com/
 
 Launching the application will automatically check for new updates!
 
-Same as with installing, you can download the [latest release](https://github.com/false-spring/gbfr-logs/releases) and run the installer again and it will update over your old installation.
+Same as with installing, you can download the [latest release](https://github.com/BlueMiku/gbfr-logs/releases) and run the installer again and it will update over your old installation.
 
 > Q: How do I uninstall?
 
@@ -100,7 +104,7 @@ Read [src-tauri/lang/README.md](./src-tauri/lang/README.md) for more information
 
 > Q: My issue isn't listed here, or I have a suggestion.
 
-Feel free to create a [new GitHub issue](https://github.com/false-spring/gbfr-logs/issues) or [join the Discord server](https://discord.gg/GR4r9zrqJj).
+Feel free to create a [new GitHub issue](https://github.com/BlueMiku/gbfr-logs/issues).
 
 ## For Developers
 
@@ -117,14 +121,11 @@ This project is split up into a few subprojects:
 - `protocol/` - Defines the message protocol used by hook + back-end.
 - `src/` - The JS front-end used by the Tauri web app
 
-# Supporting the Project
-
-GBFR Logs will always be kept free and open-source (MIT). However, if you want to support me directly, [you can buy me a coffee!](https://www.buymeacoffee.com/false.spring) 🙇
-
 ## Credits
 
 This project would not have been possible without the following folks:
 
+- [false-spring](https://github.com/false-spring) for creating and maintaining the original GBFR Logs project.
 - [nyaoouo/GBFR-ACT](https://github.com/nyaoouo/GBFR-ACT) for the original reverse engineering work.
 - [Harkain](https://github.com/Harkains) for their work on formatting and translating skills to friendly English names.
 
