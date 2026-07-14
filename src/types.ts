@@ -223,6 +223,13 @@ export enum MeterColumns {
   StunPerSecond = "stun-per-second",
 }
 
+// The overlay's visual layout. "Default" is the original vertical row-per-player table;
+// "HorizontalOverlay" is the compact horizontal card-strip layout (HorizOverlay-style).
+export enum MeterTheme {
+  Default = "default",
+  HorizontalOverlay = "horizontal-overlay",
+}
+
 export type SortType = MeterColumns;
 
 export type LogSortType = "time" | "duration" | "quest-elapsed-time";

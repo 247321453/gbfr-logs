@@ -23,6 +23,7 @@ import {
   Text,
   UnstyledButton,
 } from "@mantine/core";
+import { invoke } from "@tauri-apps/api/core";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
@@ -104,7 +105,10 @@ export const IndexPage = () => {
         <Box style={{ display: "flex" }}>
           <Text>{t("ui.logs.saved-count", { count: searchResult.logCount })}</Text>
         </Box>
-        <Box style={{ display: "flex", flexDirection: "row-reverse", flex: 1 }}>
+        <Box style={{ display: "flex", flexDirection: "row-reverse", flex: 1, gap: "0.5rem" }}>
+          <Button size="xs" variant="default" onClick={() => invoke("end_current_encounter")}>
+            End Current Battle
+          </Button>
           {selectedLogIds.length > 0 ? (
             <Button size="xs" variant="default" onClick={confirmDeleteSelected} disabled={selectedLogIds.length === 0}>
               {t("ui.logs.delete-selected-btn", { count: selectedLogIds.length })}

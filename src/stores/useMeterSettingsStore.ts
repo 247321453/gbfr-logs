@@ -1,8 +1,9 @@
-import { MeterColumns } from "@/types";
+import { MeterColumns, MeterTheme } from "@/types";
 import { Mutate, StoreApi, create } from "zustand";
 import { persist } from "zustand/middleware";
 
 interface MeterSettings {
+  meter_theme: MeterTheme;
   color_1: string;
   color_2: string;
   color_3: string;
@@ -13,6 +14,7 @@ interface MeterSettings {
   show_full_values: boolean;
   use_condensed_skills: boolean;
   open_log_on_save: boolean;
+  auto_resize_window: boolean;
   overlay_columns: MeterColumns[];
 }
 
@@ -21,16 +23,18 @@ interface MeterStateFunctions {
 }
 
 const DEFAULT_METER_SETTINGS: MeterSettings = {
+  meter_theme: MeterTheme.Default,
   color_1: "#FF5630",
   color_2: "#FFAB00",
   color_3: "#36B37E",
   color_4: "#00B8D9",
-  transparency: 0.2,
+  transparency: 0.55,
   show_display_names: true,
   streamer_mode: false,
   show_full_values: false,
   use_condensed_skills: true,
   open_log_on_save: true,
+  auto_resize_window: true,
   overlay_columns: [MeterColumns.TotalDamage, MeterColumns.DPS, MeterColumns.DamagePercentage],
 };
 

@@ -33,6 +33,12 @@ mod parser;
 struct AlwaysOnTop(AtomicBool);
 struct ClickThrough(AtomicBool);
 struct DebugMode(AtomicBool);
+struct ForceEndEncounter(AtomicBool);
+
+#[tauri::command]
+fn end_current_encounter(state: State<ForceEndEncounter>) {
+    state.0.store(true, Ordering::Release);
+}
 
 #[tauri::command]
 fn set_debug_mode(app: AppHandle, state: State<DebugMode>, enabled: bool) {
@@ -460,8 +466,18 @@ fn connect_and_run_parser(app: AppHandle) {
 
                     let decoder = tokio_util::codec::LengthDelimitedCodec::new();
                     let mut reader = FramedRead::new(stream, decoder);
+                    let mut inactivity_check =
+                        tokio::time::interval(std::time::Duration::from_secs(1));
+                    inactivity_check
+                        .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-                    while let Some(Ok(msg)) = reader.next().await {
+                    loop {
+                        tokio::select! {
+                            message = reader.next() => {
+                                let Some(Ok(msg)) = message else {
+                                    break;
+                                };
+
                         // Handle EOF when the game closes.
                         if msg.is_empty() {
                             break;
@@ -501,6 +517,20 @@ fn connect_and_run_parser(app: AppHandle) {
                                 }
                                 protocol::Message::OnDeathEvent(event) => {
                                     state.on_death_event(event);
+                                }
+                                        protocol::Message::OnBattleEnd => {
+                                            state.on_battle_end_event();
+                            }
+                        }
+                    }
+                            }
+                            _ = inactivity_check.tick() => {
+                                let forced = app.state::<ForceEndEncounter>().0.swap(false, Ordering::AcqRel);
+
+                                if forced {
+                                    state.on_battle_end_event();
+                                } else {
+                                    state.auto_save_if_inactive(chrono::Utc::now().timestamp_millis());
                                 }
                             }
                         }
@@ -685,6 +715,7 @@ fn main() {
         .manage(AlwaysOnTop(AtomicBool::new(true)))
         .manage(ClickThrough(AtomicBool::new(false)))
         .manage(DebugMode(AtomicBool::new(false)))
+        .manage(ForceEndEncounter(AtomicBool::new(false)))
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 window.hide().unwrap();
@@ -700,6 +731,7 @@ fn main() {
             toggle_always_on_top,
             export_damage_log_to_file,
             set_debug_mode,
+            end_current_encounter,
         ])
         .setup(|app| {
             let _= system_tray_with_menu(app.handle());

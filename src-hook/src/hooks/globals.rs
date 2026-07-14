@@ -13,27 +13,33 @@ pub static OVERMASTERY_OFFSET: AtomicU32 = AtomicU32::new(0);
 pub static SIGIL_OFFSET: AtomicU32 = AtomicU32::new(0);
 pub static SBA_OFFSET: AtomicU32 = AtomicU32::new(0);
 
+/// Game 2.0 restructured the property lookup this used to resolve via a static byte
+/// pattern (it now goes through a runtime hashtable dispatch instead of a fixed
+/// compile-time offset). Verified live on 2026-07-11 against a known character's
+/// level/HP/attack/power values via a bounded memory scan from the damage hook -
+/// see feedback_re_methodology memory for the technique. Re-verify if this ever
+/// silently produces wrong player stats after a future game patch.
+const PLAYER_DATA_OFFSET_GAME_2: u32 = 0x15030;
+
+/// Unlike player_data_offset, this is a *direct* offset from the entity to a slot
+/// that holds a pointer to a separately-allocated SigilList (confirmed live:
+/// entity_ptr+this, read as a pointer, dereferenced, gives sigil_id/sigil_level
+/// matching the actually-equipped sigil). See feedback_re_methodology memory - this
+/// needed an extra level of indirection beyond what worked for player_data_offset.
+const SIGIL_OFFSET_GAME_2: u32 = 0x1AE90;
+
 pub fn setup_globals(process: &Process) -> Result<()> {
-    let player_data_offset = process
-        .search_slice::<u32>("3d b0 e0 7a 88 0f ? ? ? ? ? b8 b0 e0 7a 88 48 8d 8e '")
-        .context("Could not find player_data_offset")?;
+    let player_data_offset = PLAYER_DATA_OFFSET_GAME_2;
 
     #[cfg(feature = "console")]
     println!("player_data_offset: {:x}", player_data_offset);
 
     PLAYER_DATA_OFFSET.store(player_data_offset, std::sync::atomic::Ordering::Relaxed);
 
-    let sigil_offset = process
-        .search_slice::<u32>("8b 01 eb 02 31 c0 49 8b 8c 24 ' ? ? ? ? 89 81 ? ? ? ?")
-        .context("Could not find sigil offset")?;
-
     #[cfg(feature = "console")]
-    println!("sigil offsets: {:x}", sigil_offset);
+    println!("sigil_offset: {:x}", SIGIL_OFFSET_GAME_2);
 
-    SIGIL_OFFSET.store(
-        player_data_offset + sigil_offset,
-        std::sync::atomic::Ordering::Relaxed,
-    );
+    SIGIL_OFFSET.store(SIGIL_OFFSET_GAME_2, std::sync::atomic::Ordering::Relaxed);
 
     let weapon_offset = process
         .search_slice::<u8>("48 ? ? ' ? 48 ? ? ? 48 ? ? e8 ? ? ? ? 31 ?")

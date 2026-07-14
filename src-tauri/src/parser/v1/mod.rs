@@ -292,6 +292,10 @@ enum ParserStatus {
     Stopped,
 }
 
+/// Game 2.0 compatibility mode does not currently receive area/quest end events.
+/// Treat a sustained absence of damage as the end of a battle for log persistence.
+const AUTO_SAVE_INACTIVITY_MS: i64 = 60_000;
+
 /// The state of the encounter after processing all damage events (or all known events for now)
 /// Used for parsing the encounter into a calculated format that can be consumed by the front-end.
 #[derive(Debug, Serialize, Deserialize)]
@@ -684,6 +688,61 @@ impl Parser {
         }
     }
 
+    /// Saves an active encounter after combat has been quiet long enough.
+    ///
+    /// The status changes before the database write, so future timer ticks cannot save
+    /// the same battle more than once.
+    pub fn auto_save_if_inactive(&mut self, now: i64) -> bool {
+        if self.status != ParserStatus::InProgress
+            || !self.has_damage()
+            || now - self.derived_state.end_time < AUTO_SAVE_INACTIVITY_MS
+        {
+            return false;
+        }
+
+        self.finish_and_save_encounter()
+    }
+
+    /// Handles the game 2.0 result-screen signal without depending on quest memory.
+    pub fn on_battle_end_event(&mut self) -> bool {
+        if self.status != ParserStatus::InProgress || !self.has_damage() {
+            return false;
+        }
+
+        self.finish_and_save_encounter()
+    }
+
+    fn finish_and_save_encounter(&mut self) -> bool {
+        self.update_status(ParserStatus::Stopped);
+
+        match self.save_encounter_to_db() {
+            Ok(id) => {
+                if let Some(app) = &self.app {
+                    let _ = app.emit("encounter-saved", id);
+                } else if let Some(window) = &self.window_handle {
+                    let _ = window.emit("encounter-saved", id);
+                }
+
+                if let Some(window) = &self.window_handle {
+                    let _ = window.emit("encounter-update", &self.derived_state);
+                }
+                true
+            }
+            Err(e) => {
+                if let Some(app) = &self.app {
+                    let _ = app.emit_str("encounter-saved-error", e.to_string());
+                } else if let Some(window) = &self.window_handle {
+                    let _ = window.emit("encounter-saved-error", e.to_string());
+                }
+
+                if let Some(window) = &self.window_handle {
+                    let _ = window.emit("encounter-update", &self.derived_state);
+                }
+                false
+            }
+        }
+    }
+
     pub fn on_player_load_event(&mut self, event: PlayerLoadEvent) {
         let character_type = CharacterType::from_hash(event.character_type);
 
@@ -715,34 +774,33 @@ impl Parser {
             is_online: event.is_online,
             character_type,
             sigils,
-            weapon_info: Some(event.weapon_info.into()),
-            overmastery_info: Some(event.overmastery_info.into()),
+            weapon_info: event.weapon_info.map(Into::into),
+            overmastery_info: event.overmastery_info.map(Into::into),
             player_stats: Some(event.player_stats.into()),
         };
 
-        // Insert into encounter player data array, using actor_index.
-        if !player_data.is_online && event.party_index == 0 {
-            self.encounter.player_data[0] = Some(player_data.clone());
-        } else {
-            for i in 1..=3 {
-                if let Some(player) = &self.encounter.player_data[i] {
-                    // If this is the same player, update it.
-                    if player.actor_index == player_data.actor_index {
-                        self.encounter.player_data[i] = Some(player_data.clone());
-                        break;
-                    }
-
-                    // If the actor index we're trying to insert is lower than the current slot's actor index,
-                    // then we need to shift the rest of the array to the right.
-                    if player_data.actor_index < player.actor_index {
-                        self.encounter.player_data[i..].rotate_right(1);
-                        self.encounter.player_data[i] = Some(player_data.clone());
-                        break;
-                    }
-                } else {
+        // Insert into encounter player data array by actor_index. party_index is
+        // unavailable in game 2.0 compatibility mode (sigil_offset unresolved), so
+        // slot 0 is no longer reserved for the local player specifically - all four
+        // slots are filled/updated uniformly, sorted by actor_index.
+        for i in 0..=3 {
+            if let Some(player) = &self.encounter.player_data[i] {
+                // If this is the same player, update it.
+                if player.actor_index == player_data.actor_index {
                     self.encounter.player_data[i] = Some(player_data.clone());
                     break;
                 }
+
+                // If the actor index we're trying to insert is lower than the current slot's actor index,
+                // then we need to shift the rest of the array to the right.
+                if player_data.actor_index < player.actor_index {
+                    self.encounter.player_data[i..].rotate_right(1);
+                    self.encounter.player_data[i] = Some(player_data.clone());
+                    break;
+                }
+            } else {
+                self.encounter.player_data[i] = Some(player_data.clone());
+                break;
             }
         }
 
@@ -962,6 +1020,67 @@ mod tests {
 
         assert_eq!(parser.status, ParserStatus::Waiting);
         assert_eq!(parser.start_time(), 1);
+    }
+
+    #[test]
+    fn inactive_encounter_is_saved_once() {
+        let mut parser = Parser::default();
+        let event = DamageEvent {
+            source: Actor {
+                index: 1,
+                actor_type: 0x4C714F77,
+                parent_actor_type: 0x4C714F77,
+                parent_index: 1,
+            },
+            target: Actor {
+                index: 2,
+                actor_type: 0x12345678,
+                parent_actor_type: 0x12345678,
+                parent_index: 2,
+            },
+            damage: 100,
+            flags: 0,
+            action_id: ActionType::Normal(0),
+            attack_rate: None,
+            stun_value: None,
+            damage_cap: None,
+        };
+
+        parser.on_damage_event(event);
+        let last_damage_at = parser.derived_state.end_time;
+
+        assert!(parser.auto_save_if_inactive(last_damage_at + AUTO_SAVE_INACTIVITY_MS));
+        assert_eq!(parser.status, ParserStatus::Stopped);
+        assert!(!parser.auto_save_if_inactive(last_damage_at + AUTO_SAVE_INACTIVITY_MS * 2));
+    }
+
+    #[test]
+    fn battle_end_event_stops_and_saves_once() {
+        let mut parser = Parser::default();
+        parser.on_damage_event(DamageEvent {
+            source: Actor {
+                index: 1,
+                actor_type: 0x4C714F77,
+                parent_actor_type: 0x4C714F77,
+                parent_index: 1,
+            },
+            target: Actor {
+                index: 2,
+                actor_type: 0x12345678,
+                parent_actor_type: 0x12345678,
+                parent_index: 2,
+            },
+            damage: 100,
+            flags: 0,
+            action_id: ActionType::Normal(0),
+            attack_rate: None,
+            stun_value: None,
+            damage_cap: None,
+        });
+
+        assert!(parser.on_battle_end_event());
+        assert_eq!(parser.status, ParserStatus::Stopped);
+        assert!(!parser.on_battle_end_event());
     }
 
     #[test]

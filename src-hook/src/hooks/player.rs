@@ -7,7 +7,7 @@ use retour::static_detour;
 use crate::{
     event,
     hooks::{
-        actor_type_id,
+        actor_idx, actor_type_id,
         ffi::{Overmasteries, PlayerStats, SigilList, VBuffer, WeaponInfo},
         globals::{OVERMASTERY_OFFSET, PLAYER_DATA_OFFSET, SIGIL_OFFSET, WEAPON_OFFSET},
     },
@@ -57,129 +57,150 @@ impl OnLoadPlayerHook {
 
         let ret = unsafe { OnLoadPlayer.call(a1) };
 
-        let player_idx = unsafe { a1.byte_add(0x170).read() } as u32;
+        let player_idx = actor_idx(a1);
 
         let player_offset = PLAYER_DATA_OFFSET.load(std::sync::atomic::Ordering::Relaxed);
         let weapon_offset = WEAPON_OFFSET.load(std::sync::atomic::Ordering::Relaxed);
         let overmastery_offset = OVERMASTERY_OFFSET.load(std::sync::atomic::Ordering::Relaxed);
         let sigil_offset = SIGIL_OFFSET.load(std::sync::atomic::Ordering::Relaxed);
 
+        // player_data_offset is our one confirmed-working offset for game 2.0; without
+        // it there's nothing useful to send at all.
+        if player_offset == 0 {
+            return ret;
+        }
+
         let raw_player_stats = std::ptr::NonNull::new(
             unsafe { a1.byte_add(player_offset as usize) } as *mut PlayerStats,
         );
 
-        let raw_weapon_info = std::ptr::NonNull::new(
-            unsafe { a1.byte_add(weapon_offset as usize) } as *mut WeaponInfo,
-        );
+        let Some(raw_player_stats) = raw_player_stats else {
+            return ret;
+        };
 
-        let raw_overmastery_info =
-            std::ptr::NonNull::new(
-                unsafe { a1.byte_add(overmastery_offset as usize) } as *mut Overmasteries
-            );
+        let character_type = actor_type_id(a1);
+        let player_stats = unsafe { raw_player_stats.as_ref() };
 
-        let sigil_list = std::ptr::NonNull::new(
-            unsafe { a1.byte_add(sigil_offset as usize).read() } as *mut SigilList,
-        );
-
-        if let (
-            Some(raw_player_stats),
-            Some(weapon_info),
-            Some(overmastery_info),
-            Some(sigil_list),
-        ) = (
-            raw_player_stats,
-            raw_weapon_info,
-            raw_overmastery_info,
-            sigil_list,
-        ) {
-            let character_type = actor_type_id(a1);
-            let player_stats = unsafe { raw_player_stats.as_ref() };
-            let weapon_info = unsafe { weapon_info.as_ref() };
-            let overmastery_info = unsafe { overmastery_info.as_ref() };
-            let sigil_list = unsafe { sigil_list.as_ref() };
-
-            if (sigil_list.party_index as u8) == 0xFF && sigil_list.is_online == 0 {
-                return ret;
-            }
-
-            let sigils = sigil_list
-                .sigils
-                .iter()
-                .map(|sigil| protocol::Sigil {
-                    first_trait_id: sigil.first_trait_id,
-                    first_trait_level: sigil.first_trait_level,
-                    second_trait_id: sigil.second_trait_id,
-                    second_trait_level: sigil.second_trait_level,
-                    sigil_id: sigil.sigil_id,
-                    equipped_character: sigil.equipped_character,
-                    sigil_level: sigil.sigil_level,
-                    acquisition_count: sigil.acquisition_count,
-                    notification_enum: sigil.notification_enum,
+        // weapon_offset/overmastery_offset/sigil_offset are still stale for game 2.0
+        // (see globals.rs) - each of these degrades independently to None/empty
+        // rather than blocking the player stats we do have.
+        let weapon_info = if weapon_offset != 0 {
+            std::ptr::NonNull::new(unsafe { a1.byte_add(weapon_offset as usize) } as *mut WeaponInfo)
+                .map(|info| {
+                    let info = unsafe { info.as_ref() };
+                    protocol::WeaponInfo {
+                        weapon_id: info.weapon_id,
+                        star_level: info.star_level,
+                        plus_marks: info.plus_marks,
+                        awakening_level: info.awakening_level,
+                        trait_1_id: info.trait_1_id,
+                        trait_1_level: info.trait_1_level,
+                        trait_2_id: info.trait_2_id,
+                        trait_2_level: info.trait_2_level,
+                        trait_3_id: info.trait_3_id,
+                        trait_3_level: info.trait_3_level,
+                        wrightstone_id: info.wrightstone_id,
+                        weapon_level: info.weapon_level,
+                        weapon_hp: info.weapon_hp,
+                        weapon_attack: info.weapon_attack,
+                    }
                 })
-                .collect();
+        } else {
+            None
+        };
 
-            let character_name = CStr::from_bytes_until_nul(&sigil_list.character_name)
-                .ok()
-                .map(|cstr| cstr.to_owned())
-                .unwrap_or(CString::new("").unwrap());
+        let overmastery_info = if overmastery_offset != 0 {
+            std::ptr::NonNull::new(
+                unsafe { a1.byte_add(overmastery_offset as usize) } as *mut Overmasteries,
+            )
+            .map(|info| {
+                let info = unsafe { info.as_ref() };
+                protocol::OvermasteryInfo {
+                    overmasteries: info
+                        .stats
+                        .iter()
+                        .map(|overmastery| protocol::Overmastery {
+                            id: overmastery.id,
+                            flags: overmastery.flags,
+                            value: overmastery.value,
+                        })
+                        .collect(),
+                }
+            })
+        } else {
+            None
+        };
 
-            let display_name =
-                VBuffer(std::ptr::addr_of!(sigil_list.display_name) as *const usize).raw();
+        let sigil_list = if sigil_offset != 0 {
+            std::ptr::NonNull::new(
+                unsafe { a1.byte_add(sigil_offset as usize).read() } as *mut SigilList,
+            )
+            .map(|list| unsafe { list.as_ref() })
+        } else {
+            None
+        };
 
-            let weapon_info = protocol::WeaponInfo {
-                weapon_id: weapon_info.weapon_id,
-                star_level: weapon_info.star_level,
-                plus_marks: weapon_info.plus_marks,
-                awakening_level: weapon_info.awakening_level,
-                trait_1_id: weapon_info.trait_1_id,
-                trait_1_level: weapon_info.trait_1_level,
-                trait_2_id: weapon_info.trait_2_id,
-                trait_2_level: weapon_info.trait_2_level,
-                trait_3_id: weapon_info.trait_3_id,
-                trait_3_level: weapon_info.trait_3_level,
-                wrightstone_id: weapon_info.wrightstone_id,
-                weapon_level: weapon_info.weapon_level,
-                weapon_hp: weapon_info.weapon_hp,
-                weapon_attack: weapon_info.weapon_attack,
-            };
+        let (sigils, character_name, display_name, is_online) = match sigil_list {
+            Some(sigil_list) => {
+                if (sigil_list.party_index as u8) == 0xFF && sigil_list.is_online == 0 {
+                    return ret;
+                }
 
-            let overmastery_info = protocol::OvermasteryInfo {
-                overmasteries: overmastery_info
-                    .stats
+                let sigils = sigil_list
+                    .sigils
                     .iter()
-                    .map(|overmastery| protocol::Overmastery {
-                        id: overmastery.id,
-                        flags: overmastery.flags,
-                        value: overmastery.value,
+                    .map(|sigil| protocol::Sigil {
+                        first_trait_id: sigil.first_trait_id,
+                        first_trait_level: sigil.first_trait_level,
+                        second_trait_id: sigil.second_trait_id,
+                        second_trait_level: sigil.second_trait_level,
+                        sigil_id: sigil.sigil_id,
+                        equipped_character: sigil.equipped_character,
+                        sigil_level: sigil.sigil_level,
+                        acquisition_count: sigil.acquisition_count,
+                        notification_enum: sigil.notification_enum,
                     })
-                    .collect(),
-            };
+                    .collect();
 
-            let payload = Message::PlayerLoadEvent(protocol::PlayerLoadEvent {
-                sigils,
-                character_name,
-                display_name,
-                actor_index: player_idx,
-                is_online: sigil_list.is_online != 0,
-                party_index: sigil_list.party_index as u8,
-                player_stats: protocol::PlayerStats {
-                    level: player_stats.level,
-                    total_hp: player_stats.total_health,
-                    total_attack: player_stats.total_attack,
-                    stun_power: player_stats.stun_power,
-                    critical_rate: player_stats.critical_rate,
-                    total_power: player_stats.total_power,
-                },
-                character_type,
-                weapon_info,
-                overmastery_info,
-            });
+                let character_name = CStr::from_bytes_until_nul(&sigil_list.character_name)
+                    .ok()
+                    .map(|cstr| cstr.to_owned())
+                    .unwrap_or(CString::new("").unwrap());
 
-            #[cfg(feature = "console")]
-            println!("sending player load event: {:?}", payload);
+                let display_name =
+                    VBuffer(std::ptr::addr_of!(sigil_list.display_name) as *const usize).raw();
 
-            let _ = self.tx.send(payload);
-        }
+                (sigils, character_name, display_name, sigil_list.is_online != 0)
+            }
+            None => (Vec::new(), CString::new("").unwrap(), CString::new("").unwrap(), false),
+        };
+
+        let payload = Message::PlayerLoadEvent(protocol::PlayerLoadEvent {
+            sigils,
+            character_name,
+            display_name,
+            actor_index: player_idx,
+            is_online,
+            // Unknown without sigil_offset; consumers no longer rely on this to place
+            // players into party slots (actor_index is used instead).
+            party_index: 0xFF,
+            player_stats: protocol::PlayerStats {
+                level: player_stats.level,
+                total_hp: player_stats.total_health,
+                total_attack: player_stats.total_attack,
+                stun_power: player_stats.stun_power,
+                critical_rate: player_stats.critical_rate,
+                total_power: player_stats.total_power,
+            },
+            character_type,
+            weapon_info,
+            overmastery_info,
+        });
+
+        #[cfg(feature = "console")]
+        println!("sending player load event: {:?}", payload);
+
+        let _ = self.tx.send(payload);
 
         ret
     }
